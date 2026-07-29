@@ -1,0 +1,44 @@
+# --- environment ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- data (besar, di-download terpisah dari Kaggle) ---
+Dataset/
+data/processed/
+
+# --- ML cache & manifest/split (regenerable) ---
+ml/cache/
+ml/manifest_*.csv
+ml/split_*.csv
+
+# --- ML artifacts: ignore SEMUA kecuali dua model PRODUKSI (dipakai deploy) ---
+ml/artifacts/*
+!ml/artifacts/d1_yamnet_mlp_meanstd/
+!ml/artifacts/d2_yamnet_finetune/
+# dari d2_yamnet_finetune hanya butuh siren_savedmodel/ + metrics.json;
+# bobot besar tak-terpakai dibuang dari repo:
+ml/artifacts/d2_yamnet_finetune/model.keras
+ml/artifacts/d2_yamnet_finetune/phase1_best.weights.h5
+
+# --- frontend (di-build ulang; sumbernya saja yang di-commit) ---
+node_modules/
+frontend-web/dist/
+
+# --- notebook ---
+.ipynb_checkpoints/
+
+# --- editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- secrets ---
+.env
+.env.*
+!.env.example
+
+# --- scratch ---
+scratchpad/

@@ -1,0 +1,14 @@
+# Git LFS untuk binary model (wajib di Hugging Face untuk file >10MB).
+# SavedModel weights (~37MB) HARUS LFS; sisanya di-LFS demi konsistensi.
+*.keras                        filter=lfs diff=lfs merge=lfs -text
+*.h5                           filter=lfs diff=lfs merge=lfs -text
+*.pb                           filter=lfs diff=lfs merge=lfs -text
+*.onnx                         filter=lfs diff=lfs merge=lfs -text
+variables.data-*               filter=lfs diff=lfs merge=lfs -text
+
+# Normalisasi teks lain (hindari CRLF drama antar-OS)
+*.py    text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.css   text eol=lf
+*.md    text eol=lf

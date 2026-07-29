@@ -1,0 +1,9 @@
+timestamp,exp_id,dataset,backbone,head,n_train,n_test,best_epoch,test_macro_f1,test_accuracy
+2026-07-24T19:27:16,d1_yamnet_mlp,d1,yamnet,mlp_256_128,426,85,15,0.9643,0.9647
+2026-07-24T19:27:50,d2_yamnet_mlp,d2,yamnet,mlp_256_128,1195,240,1,0.7639,0.7667
+2026-07-24T19:54:56,d1_yamnet_mlp_esf1,d1,yamnet,mlp_256_128_esf1,426,85,6,0.9643,0.9647
+2026-07-24T19:55:04,d2_yamnet_mlp_esf1,d2,yamnet,mlp_256_128_esf1,1195,240,8,0.7725,0.775
+2026-07-24T20:31:14,d1_yamnet_mlp_meanstd,d1,yamnet,mlp_256_128_meanstd,426,85,3,0.9762,0.9765
+2026-07-24T20:31:32,d2_yamnet_mlp_meanstd,d2,yamnet,mlp_256_128_meanstd,1195,240,12,0.7983,0.8
+2026-07-24T21:10:04,d2_yamnet_mlp_meanstd_aug,d2,yamnet,mlp_256_128_meanstd_aug,3585,240,7,0.7965,0.7958
+2026-07-26T18:39:35,d2_yamnet_finetune,d2,yamnet_finetune,mlp_256_128_l2_ftL10-14,1195,240,,0.8830,0.8833

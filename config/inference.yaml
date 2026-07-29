@@ -1,0 +1,50 @@
+# Konfigurasi inferensi deployment (Fase 4).
+# Path relatif terhadap root project (folder "Siren Classification").
+# Semua nilai bisa diubah tanpa menyentuh kode.
+
+yamnet_hub_url: "https://tfhub.dev/google/yamnet/1"
+sample_rate: 16000
+duration: 3.0            # detik per klip/window (YAMNet 3 s -> 5 patch untuk D2)
+
+# --- Registry model: dua model dibandingkan berdampingan di web ---
+models:
+  d1:
+    name: "Model D1 - clean (3 kelas)"
+    type: "d1_meanstd_mlp"                 # YAMNet beku -> mean+std -> standardize -> MLP
+    model_path: "ml/artifacts/d1_yamnet_mlp_meanstd/model.keras"
+    standardize_path: "ml/artifacts/d1_yamnet_mlp_meanstd/standardize.npz"
+    classes: ["ambulance", "firetruck", "traffic"]
+    peak_norm: true                        # D1 memakai peak-normalize (notebook 07)
+    macro_f1: 0.976
+  d2:
+    name: "Model D2 - noisy/produksi (4 kelas)"
+    type: "d2_savedmodel"                  # fine-tune YAMNet end-to-end (patches -> 4 probs)
+    model_path: "ml/artifacts/d2_yamnet_finetune/siren_savedmodel"
+    classes: ["ambulance", "firetruck", "police", "traffic"]
+    peak_norm: false                       # D2 fine-tune TIDAK peak-normalize (load_raw)
+    temperature: 4.4345                      # hasil kalibrasi val (calibrate_temperature.py)
+    macro_f1: 0.883
+
+# --- Gerbang OOD (YAMNet AudioSet): "ada sirine atau tidak" sebelum classifier ---
+ood:
+  # indeks kelas AudioSet terkait sirine (dari yamnet_class_map.csv)
+  siren_class_indices: [316, 317, 318, 319, 390, 391]
+  #                     Emergency vehicle / Police car / Ambulance / Fire engine / Siren / Civil defense
+  # siren_score = PEAK skor AudioSet sirine. LONGGAR: filter kasar lawan hening/noise/musik
+  # (skor ~0), bukan penentu jenis. Sirine noisy D2 bisa serendah ~0.02, jadi ambang kecil.
+  threshold: 0.05                          # siren_score >= threshold -> lolos gerbang (tunable)
+
+# --- Logika alert (berlaku untuk kedua model) ---
+alert:
+  siren_classes: ["ambulance", "firetruck", "police"]   # traffic = BUKAN alert
+  # Ambang di skala TERKALIBRASI (D2 temperature=4.43). Setelah kalibrasi, sirine noisy asli
+  # berkisar ~0.44-0.84 keyakinan jujur -> ambang 0.40 agar tetap tertangkap. Persistensi +
+  # gerbang OOD jadi pertahanan struktural utama, bukan ambang tinggi. (Sebelum kalibrasi
+  # dipakai 0.85 untuk probs sok-yakin ~0.97.)
+  confidence_threshold: 0.40               # keyakinan (terkalibrasi) model >= ini
+  # persistensi streaming (hysteresis anti-kedip)
+  window_seconds: 3.0
+  hop_seconds: 1.0
+  smooth_window: 3                         # moving-average berapa window terakhir
+  n_on: 2                                  # butuh N window berturut untuk state ON
+  n_off: 2                                 # butuh N window berturut untuk state OFF

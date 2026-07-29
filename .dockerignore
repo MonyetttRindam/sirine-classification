@@ -1,0 +1,41 @@
+# Perkecil build context (yang dikirim ke Docker daemon).
+# CATATAN: jangan abaikan ml/artifacts secara total — Dockerfile meng-COPY dua dir model
+# produksi dari sana. Kita hanya kecualikan artefak eksperimen yang tidak dipakai deploy.
+
+.git/
+.venv/
+venv/
+**/__pycache__/
+*.py[cod]
+
+# data besar / hasil training
+Dataset/
+data/
+ml/cache/
+notebooks/
+figures/
+
+# artefak eksperimen yang TIDAK dipakai deploy (yang dipakai di-COPY eksplisit di Dockerfile)
+ml/artifacts/d2_cnn_finetune/
+ml/artifacts/exp01_baseline/
+ml/artifacts/d1_yamnet_mlp/
+ml/artifacts/d1_yamnet_mlp_esf1/
+ml/artifacts/d2_yamnet_mlp/
+ml/artifacts/d2_yamnet_mlp_esf1/
+ml/artifacts/d2_yamnet_mlp_meanstd/
+ml/artifacts/d2_yamnet_mlp_meanstd_aug/
+# dari d2_yamnet_finetune cukup siren_savedmodel; sisanya (model.keras 37MB, weights 18MB) buang
+ml/artifacts/d2_yamnet_finetune/model.keras
+ml/artifacts/d2_yamnet_finetune/phase1_best.weights.h5
+
+# frontend: node_modules & dist di-build ulang di dalam image
+frontend-web/node_modules/
+frontend-web/dist/
+frontend-gradio/
+
+# lain-lain
+*.log
+.DS_Store
+Thumbs.db
+.pytest_cache/
+scratchpad/

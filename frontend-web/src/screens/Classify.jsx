@@ -1,0 +1,363 @@
+import { useEffect, useRef, useState } from "react";
+import { SAMPLES } from "../data.js";
+import { classifySample, classifyFile, classifyStream } from "../api.js";
+import { encodeWAV, fmtTime } from "../lib/wav.js";
+
+const nowHM = () => new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+const cssVar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+const DEMO_STREAM = {
+  live: false, duration: 15, hop: 1, win: 3, thresholdPct: 5,
+  points: [[0,.10,0],[1,.72,1],[2,.78,1],[3,.30,1],[4,.03,0],[5,.02,0],[6,.22,0],[7,.66,1],[8,.71,1],[9,.16,0],[10,.03,0],[11,.02,0],[12,.05,0],[13,.03,0],[14,.02,0]]
+    .map(([t, s, on], i) => ({ t, score: s, on: !!on, triggered: i === 1 || i === 7, label: t < 4 ? "police" : "ambulance" })),
+  events: [{ t: 1, label: "police" }, { t: 7, label: "ambulance" }],
+};
+
+function ModelCard({ tag, model, winColor }) {
+  if (!model) return null;
+  const others = model.rows.filter((r) => r.n !== model.pred);
+  return (
+    <div className="mcard">
+      <div className="hd">
+        <span className={"bd " + tag}>{tag.toUpperCase()}</span>
+        <span className="nm-model">Model {tag.toUpperCase()}</span>
+        <span className="sub">· {tag === "d1" ? "3 kelas" : "4 kelas"}</span>
+      </div>
+      <div className="pred-top">
+        <div className="pt-hd">
+          <span className="lbl">Prediksi teratas</span>
+          <span className="calib"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="var(--green-600)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>terkalibrasi</span>
+        </div>
+        <div className="pt-row">
+          <span className="pt-name">{model.pred}</span>
+          <span className="pt-conf" style={{ color: winColor }}>{model.conf}%</span>
+        </div>
+        <div className="conf-bar"><div className="lv" style={{ width: model.conf + "%", background: winColor }} /></div>
+      </div>
+      <div className="other-label">Kelas lain</div>
+      {others.map((r) => (
+        <div className="mrow" key={r.n}>
+          <span className="nm">{r.n}</span>
+          <div className="tk"><div className="lv" style={{ width: Math.round(r.v * 100) + "%", background: "#c9d0de" }} /></div>
+          <span className="n tnum">{Math.round(r.v * 100)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Results({ result }) {
+  if (!result) return null;
+  const winColor = result.gateOpen ? "var(--red)" : "var(--green)";
+  const badgeText = result.alert ? `ALERT — ${result.d2Label} terdeteksi` : "AMAN — tidak ada sirine";
+  const badgeSub = result.alert ? "Gerbang OOD di atas ambang" : "Gerbang OOD di bawah ambang — kemungkinan lalu lintas biasa";
+  return (
+    <div>
+      <div className={"banner " + (result.alert ? "alert" : "safe")}>
+        <span className="d blink" /><span className="ttl">{badgeText}</span><span className="sub">{badgeSub}</span>
+      </div>
+      <div className="ood">
+        <div className="top">
+          <span className="field-label" style={{ margin: 0 }}>Gerbang OOD — kehadiran sirine</span>
+          <span className="v tnum">{result.oodPct}%</span>
+        </div>
+        <div className="bar"><div className="lv" style={{ width: result.oodPct + "%", background: winColor }} /></div>
+        <div className="mark"><div className="t" style={{ left: result.thresholdPct + "%" }} /></div>
+        <div className="cap">{result.gateOpen ? "Sirine terdeteksi" : "Tidak ada sirine"} · ambang keputusan {result.thresholdPct}%</div>
+      </div>
+      <div className="twin"><ModelCard tag="d1" model={result.d1} winColor={winColor} /><ModelCard tag="d2" model={result.d2} winColor={winColor} /></div>
+    </div>
+  );
+}
+
+export default function Classify({ initialTab = "upload", online, onClassified }) {
+  const [tab, setTab] = useState(initialTab);
+  const [sample, setSample] = useState("ambulans");
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [drag, setDrag] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recTime, setRecTime] = useState(0);
+  const [recordedUrl, setRecordedUrl] = useState(null);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [streamData, setStreamData] = useState(DEMO_STREAM);
+
+  const audioRef = useRef(null);
+  const fileRef = useRef(null);
+  const streamFileRef = useRef(null);
+  const specRef = useRef(null);
+  const micRef = useRef(null);
+  const recPlayRef = useRef(null);
+  const streamRef = useRef(null);
+  const eng = useRef({});
+
+  useEffect(() => { setTab(initialTab); }, [initialTab]);
+
+  /* ---------- Web Audio ---------- */
+  function ensureCtx() { if (!eng.current.ctx) eng.current.ctx = new (window.AudioContext || window.webkitAudioContext)(); return eng.current.ctx; }
+  function stopDraw() { if (eng.current.raf) cancelAnimationFrame(eng.current.raf); eng.current.raf = 0; }
+
+  function drawBars(canvas, data, color) {
+    if (!canvas) return;
+    const c = canvas.getContext("2d"), w = canvas.clientWidth, h = canvas.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
+    if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+    c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    const N = 48, step = w / N; c.fillStyle = color;
+    for (let i = 0; i < N; i++) {
+      const v = data ? data[Math.floor(i * data.length / N)] / 255 : 0.05;
+      const bh = Math.max(2, v * (h - 4));
+      c.fillRect(i * step + step * 0.2, (h - bh) / 2, step * 0.6, bh);
+    }
+  }
+  function loopBars(analyser, canvas, colorVar) {
+    stopDraw();
+    const color = cssVar(colorVar), buf = new Uint8Array(analyser.frequencyBinCount);
+    const step = () => { analyser.getByteFrequencyData(buf); drawBars(canvas, buf, color); eng.current.raf = requestAnimationFrame(step); };
+    step();
+  }
+
+  /* ---------- playback ---------- */
+  function loadTrack(url) { const a = audioRef.current; if (a) { a.src = url; a.load(); } eng.current.loadedUrl = url; setPlaying(false); setCur(0); }
+  async function togglePlay(canvasRef, colorVar = "--blue") {
+    const a = audioRef.current; if (!a || !a.src) return;
+    const ctx = ensureCtx();
+    if (!eng.current.mediaConnected) {
+      const src = ctx.createMediaElementSource(a);
+      const an = ctx.createAnalyser(); an.fftSize = 512;
+      src.connect(an); src.connect(ctx.destination);
+      eng.current.playAnalyser = an; eng.current.mediaConnected = true;
+    }
+    await ctx.resume();
+    if (a.paused) { await a.play(); setPlaying(true); loopBars(eng.current.playAnalyser, canvasRef?.current, colorVar); }
+    else { a.pause(); setPlaying(false); stopDraw(); }
+  }
+  // Putar ulang hasil rekaman (pastikan track yang dimuat adalah rekaman).
+  function playRecording() {
+    if (recordedUrl && eng.current.loadedUrl !== recordedUrl) loadTrack(recordedUrl);
+    togglePlay(recPlayRef, "--red");
+  }
+
+  /* ---------- mic → WAV → /predict ---------- */
+  async function startMic() {
+    setError("");
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { setError("Tidak bisa mengakses mikrofon. Izinkan akses mic di browser."); return; }
+    const ctx = ensureCtx(); await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const an = ctx.createAnalyser(); an.fftSize = 256; src.connect(an);
+    const proc = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain(); mute.gain.value = 0;
+    src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    const chunks = [];
+    proc.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    eng.current.mic = { stream, src, proc, mute, chunks, sr: ctx.sampleRate };
+    setRecording(true); setRecTime(0);
+    eng.current.recTimer = setInterval(() => setRecTime((t) => t + 1), 1000);
+    loopBars(an, micRef.current, "--red");
+    eng.current.micTimer = setTimeout(stopMic, 4500);
+  }
+  function stopMic() {
+    const m = eng.current.mic; if (!m) return;
+    clearTimeout(eng.current.micTimer); clearInterval(eng.current.recTimer); stopDraw(); setRecording(false);
+    try { m.proc.disconnect(); m.mute.disconnect(); m.src.disconnect(); } catch {}
+    m.stream.getTracks().forEach((t) => t.stop());
+    eng.current.mic = null;
+    const len = m.chunks.reduce((a, c) => a + c.length, 0); if (!len) return;
+    const flat = new Float32Array(len); let o = 0; m.chunks.forEach((c) => { flat.set(c, o); o += c.length; });
+    const blob = encodeWAV(flat, m.sr);
+    const url = URL.createObjectURL(blob);
+    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    setRecordedUrl(url); loadTrack(url);
+    runBlob(new File([blob], "rekaman.wav", { type: "audio/wav" }), "Mic");
+  }
+
+  /* ---------- classify ---------- */
+  function log(res, src) {
+    onClassified?.({ time: nowHM(), src,
+      d1: `${res.d1.pred} · ${(res.d1.conf / 100).toFixed(2)}`, d2: `${res.d2.pred} · ${(res.d2.conf / 100).toFixed(2)}`,
+      ood: (res.oodPct / 100).toFixed(2), status: res.alert ? "ALERT" : "AMAN" });
+  }
+  async function runSample(key) {
+    const s = SAMPLES[key]; setSample(key); setError(""); setLoading(true); loadTrack(s.file);
+    try { const res = await classifySample(key); setResult(res); log(res, "Upload"); }
+    catch { setError("Gagal mengklasifikasi contoh."); } finally { setLoading(false); }
+  }
+  async function runBlob(file, src) {
+    setError(""); setLoading(true);
+    try { const res = await classifyFile(file); setResult(res); log(res, src); }
+    catch { setError("Backend tidak merespons. Jalankan uvicorn untuk klasifikasi nyata, atau pilih contoh."); }
+    finally { setLoading(false); }
+  }
+  function onFile(file) { if (!file) return; loadTrack(URL.createObjectURL(file)); runBlob(file, "Upload"); }
+
+  async function runStream(file) {
+    if (!file) return;
+    loadTrack(URL.createObjectURL(file)); setLoading(true);
+    try { const d = await classifyStream(file); setStreamData(d); } finally { setLoading(false); }
+  }
+
+  useEffect(() => { if (!result) runSample("ambulans"); /* eslint-disable-next-line */ }, []);
+  // Hentikan playback saat pindah tab supaya audio tidak bocor ke tab lain.
+  useEffect(() => { const a = audioRef.current; if (a && !a.paused) { a.pause(); setPlaying(false); stopDraw(); } /* eslint-disable-next-line */ }, [tab]);
+  useEffect(() => {
+    if (tab === "upload" && !playing) drawBars(specRef.current, null, cssVar("--blue"));
+    if (tab === "record" && recording) drawBars(micRef.current, null, cssVar("--red"));
+    if (tab === "record" && !recording && recordedUrl && !playing) drawBars(recPlayRef.current, null, cssVar("--red"));
+  }, [tab, playing, recording, recordedUrl]);
+  useEffect(() => { if (tab === "stream") drawStreamChart(streamRef.current, streamData, cur); /* eslint-disable-next-line */ }, [tab, streamData, cur]);
+  useEffect(() => () => { stopDraw(); if (eng.current.mic) stopMic(); if (eng.current.ctx) eng.current.ctx.close(); /* eslint-disable-next-line */ }, []);
+
+  const showResults = tab === "upload" || tab === "record";
+
+  return (
+    <div>
+      <audio ref={audioRef} hidden
+        onEnded={() => { setPlaying(false); stopDraw(); }}
+        onTimeUpdate={(e) => setCur(e.target.currentTime)}
+        onLoadedMetadata={(e) => setDur(e.target.duration)} />
+
+      {/* HERO header */}
+      <section className="demo-hero">
+        <svg className="demo-hero-wf" viewBox="0 0 240 44" preserveAspectRatio="none"><use href="#wf" /></svg>
+        <div className="demo-hero-in">
+          <span className="live-badge"><span className="d blink" />Live Inference · {online ? "backend online" : "mode contoh"}</span>
+          <h2 className="demo-title">Demo Langsung</h2>
+          <p className="demo-lede">Klasifikasi berjalan langsung di browser Anda — audio contoh diproses secara lokal, tidak ada yang diunggah ke server.</p>
+          <p className="model-line">Model: <b>D1 · YAMNet-MLP</b> (3 kelas) &amp; <b>D2 · YAMNet fine-tune</b> (4 kelas) · gerbang OOD terkalibrasi</p>
+        </div>
+      </section>
+
+      <div className="page">
+        {/* info banner */}
+        <div className="info-banner">
+          <div className="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="6" y="3" width="12" height="18" rx="2.5" stroke="var(--blue)" strokeWidth="1.8" /><line x1="10" y1="18" x2="14" y2="18" stroke="var(--blue)" strokeWidth="1.8" strokeLinecap="round" /></svg></div>
+          <div className="tx"><b>Baru: monitoring lapangan.</b> Jalankan deteksi dari mikrofon perangkat, di pos jaga maupun kendaraan.</div>
+          <a onClick={() => setTab("stream")}>Selengkapnya →</a>
+        </div>
+
+        <div className="tabs">
+          <button className={"tab" + (tab === "upload" ? " on" : "")} onClick={() => setTab("upload")}>Upload Audio</button>
+          <button className={"tab" + (tab === "record" ? " on" : "")} onClick={() => setTab("record")}>Rekam Mic</button>
+          <button className={"tab" + (tab === "stream" ? " on" : "")} onClick={() => setTab("stream")}>Streaming</button>
+        </div>
+
+        {tab === "upload" && (
+          <div>
+            <div className="field-label">Contoh audio</div>
+            <div className="chips">
+              {Object.values(SAMPLES).map((s) => (
+                <button key={s.key} className={"chip" + (sample === s.key ? " on" : "")} onClick={() => runSample(s.key)}>{s.label} · {s.dur}</button>
+              ))}
+              <span className="hint">atau unggah file .wav</span>
+            </div>
+            <div className={"dropzone" + (drag ? " drag" : "")}
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setDrag(false); onFile(e.dataTransfer.files?.[0]); }}>
+              Klik atau seret file audio (.wav / .mp3) ke sini untuk klasifikasi nyata
+              <input ref={fileRef} type="file" accept="audio/*" hidden onChange={(e) => onFile(e.target.files?.[0])} />
+            </div>
+            <div className="player">
+              <button className="play" onClick={() => togglePlay(specRef, "--blue")} aria-label={playing ? "Jeda" : "Putar"}>{playing ? "❚❚" : "▶"}</button>
+              <canvas ref={specRef} className="viz-canvas" />
+              <span className="dur tnum" style={{ flex: "none", minWidth: 78, textAlign: "right" }}>{fmtTime(cur)} / {fmtTime(dur)}</span>
+            </div>
+          </div>
+        )}
+
+        {tab === "record" && (
+          <div>
+            {recording ? (
+              <div className="rec-card">
+                <div className="mic mic-pulse"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="#fff" strokeWidth="1.9" /><path d="M6 11a6 6 0 0 0 12 0M12 17v4" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" /></svg></div>
+                <div className="rec-info">
+                  <div className="line1"><span className="t1">Merekam</span><span className="rec-badge"><span className="d blink" />REC</span></div>
+                  <div className="t2">Otomatis berhenti & diklasifikasi setelah ~4 detik.</div>
+                </div>
+                <span className="rec-timer tnum">{fmtTime(recTime)}</span>
+                <button className="stop-btn" onClick={stopMic}><span className="sq" />Hentikan</button>
+                <div className="rec-level"><span className="lv-lbl">Level</span><canvas ref={micRef} className="viz-canvas" style={{ height: 30 }} /></div>
+              </div>
+            ) : (
+              <div className="record">
+                <button className="mic" onClick={startMic} style={{ border: 0, cursor: "pointer" }}>●</button>
+                <div style={{ flex: 1 }}>
+                  <div className="t1">{recordedUrl ? "Rekaman siap — putar atau rekam ulang" : "Rekam suara di sekitar Anda"}</div>
+                  <div className="t2">Klik tombol merah untuk merekam ~4 detik dari mikrofon, lalu otomatis diklasifikasi.</div>
+                </div>
+              </div>
+            )}
+
+            {recordedUrl && !recording && (
+              <div className="player" style={{ marginTop: 16 }}>
+                <button className="play red" onClick={playRecording} aria-label={playing ? "Jeda" : "Putar"}>{playing ? "❚❚" : "▶"}</button>
+                <canvas ref={recPlayRef} className="viz-canvas" />
+                <span className="dur tnum" style={{ flex: "none", minWidth: 78, textAlign: "right" }}>{fmtTime(cur)} / {fmtTime(dur)}</span>
+                <button className="chip" style={{ flex: "none" }} onClick={startMic}>↻ Rekam ulang</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && <div className="banner alert" style={{ marginTop: 20, marginBottom: 20 }}><span className="d" /><span className="ttl">{error}</span></div>}
+        {loading && <div className="offline" style={{ marginTop: 20 }}><span className="spin" /> Memproses…</div>}
+
+        {showResults && !loading && <div style={{ marginTop: 26 }}><Results result={result} /></div>}
+
+        {tab === "stream" && (
+          <div>
+            <div className="stream-hd">
+              <span className="live"><span className="d blink" />LIVE</span>
+              <span className="stream-ttl">Monitoring siren_score</span>
+              <span className="stream-meta">window {streamData.win}s · hop {streamData.hop}s · {streamData.live ? "hasil backend" : "contoh"}</span>
+            </div>
+            <div className="chips" style={{ marginBottom: 14 }}>
+              <button className="chip on" onClick={() => streamFileRef.current?.click()}>⤒ Unggah audio panjang</button>
+              <button className="chip" onClick={() => togglePlay(null)}>{playing ? "❚❚ Jeda" : "▶ Putar & lacak"}</button>
+              <span className="hint">unggah rekaman panjang (mis. suara jalan) → dipindai per {streamData.win} detik</span>
+              <input ref={streamFileRef} type="file" accept="audio/*" hidden onChange={(e) => runStream(e.target.files?.[0])} />
+            </div>
+            <div className="chartbox"><canvas ref={streamRef} style={{ width: "100%", height: 220, display: "block" }} /></div>
+            <div className="stream-foot">
+              <div className="banner safe" style={{ flex: 1 }}>
+                <span className="d" style={{ background: "var(--blue)" }} />
+                <span className="ttl" style={{ color: "var(--ink)" }}>{streamData.events.length} event alert terdeteksi</span>
+              </div>
+              <div style={{ flex: "none", textAlign: "right" }}>
+                <div className="field-label" style={{ margin: 0 }}>Event</div>
+                <div style={{ fontFamily: "var(--display)", fontWeight: 700, fontSize: 14 }}>
+                  {streamData.events.map((e) => `${e.t}s ${e.label}`).join(" · ") || "—"}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  function drawStreamChart(canvas, data, curTime) {
+    if (!canvas || !data) return;
+    const w = canvas.clientWidth, H = 220, dpr = Math.min(2, devicePixelRatio || 1);
+    canvas.width = w * dpr; canvas.height = H * dpr;
+    const c = canvas.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, H);
+    const pad = { l: 38, r: 14, t: 16, b: 26 }, pw = w - pad.l - pad.r, ph = H - pad.t - pad.b, D = data.duration || 15;
+    const X = (t) => pad.l + (t / D) * pw, Y = (s) => pad.t + (1 - s) * ph;
+    c.font = "10px Manrope, sans-serif"; c.textBaseline = "middle";
+    [1, .5, 0].forEach((val) => { const yy = Y(val); c.strokeStyle = "#e6e9f0"; c.beginPath(); c.moveTo(pad.l, yy); c.lineTo(w - pad.r, yy); c.stroke(); c.fillStyle = "#8494a0"; c.textAlign = "right"; c.fillText(val.toFixed(1), pad.l - 6, yy); });
+    c.strokeStyle = cssVar("--red"); c.globalAlpha = .55; c.setLineDash([5, 5]); c.beginPath(); c.moveTo(pad.l, Y(0.05)); c.lineTo(w - pad.r, Y(0.05)); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+    c.fillStyle = cssVar("--red"); c.globalAlpha = .10; data.points.forEach((p) => { if (p.on) { const x0 = X(p.t), x1 = X(Math.min(D, p.t + data.hop)); c.fillRect(x0, pad.t, x1 - x0, ph); } }); c.globalAlpha = 1;
+    const P = data.points;
+    const grad = c.createLinearGradient(0, pad.t, 0, pad.t + ph); grad.addColorStop(0, "rgba(47,91,255,.25)"); grad.addColorStop(1, "rgba(47,91,255,0)");
+    c.beginPath(); P.forEach((p, i) => { const x = X(p.t), y = Y(p.score); i ? c.lineTo(x, y) : c.moveTo(x, y); });
+    c.lineTo(X(P[P.length - 1].t), pad.t + ph); c.lineTo(X(P[0].t), pad.t + ph); c.closePath(); c.fillStyle = grad; c.fill();
+    c.beginPath(); P.forEach((p, i) => { const x = X(p.t), y = Y(p.score); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.strokeStyle = cssVar("--blue"); c.lineWidth = 2.4; c.lineJoin = "round"; c.stroke();
+    P.forEach((p) => { if (p.on) { c.beginPath(); c.arc(X(p.t), Y(p.score), 3, 0, 7); c.fillStyle = cssVar("--red"); c.fill(); } });
+    data.events.forEach((e) => { c.strokeStyle = cssVar("--red"); c.setLineDash([3, 3]); c.beginPath(); c.moveTo(X(e.t), pad.t); c.lineTo(X(e.t), pad.t + ph); c.stroke(); c.setLineDash([]); });
+    c.fillStyle = "#8494a0"; c.textAlign = "center"; c.textBaseline = "top"; [0, D / 2, D].forEach((t) => c.fillText(Math.round(t) + "s", X(t), H - pad.b + 6));
+    if (curTime > 0) { c.strokeStyle = cssVar("--red"); c.lineWidth = 2; c.beginPath(); c.moveTo(X(curTime), pad.t); c.lineTo(X(curTime), pad.t + ph); c.stroke(); }
+  }
+}

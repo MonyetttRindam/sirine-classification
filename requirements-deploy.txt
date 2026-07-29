@@ -1,0 +1,21 @@
+# =============================================
+# Dependencies untuk DEPLOY (backend inferензi + serve React build)
+# Ramping: hanya yang dipakai ml/src + FastAPI. TANPA pandas/matplotlib/seaborn/jupyter.
+# Versi dipin ke yang sudah teruji lokal (lihat CLAUDE.md) untuk reproducibility image.
+# =============================================
+
+# --- inti inferensi (ml/src) ---
+tensorflow==2.16.2
+tensorflow-hub==0.16.1
+numpy==1.26.4
+pyyaml==6.0.2
+
+# --- audio (librosa menarik scipy/numba/soundfile/scikit-learn otomatis) ---
+librosa==0.10.2
+soundfile==0.12.1
+audioread==3.0.1
+
+# --- backend web ---
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+python-multipart==0.0.19

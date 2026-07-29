@@ -1,0 +1,11 @@
+{
+  "test_macro_f1": 0.9761904761904763,
+  "test_accuracy": 0.9764705882352941,
+  "per_class_f1": {
+    "ambulance": 0.9642857142857143,
+    "firetruck": 0.9642857142857143,
+    "traffic": 1.0
+  },
+  "best_epoch": 3,
+  "feature": "yamnet_meanstd_2048"
+}

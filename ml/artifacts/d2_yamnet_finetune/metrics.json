@@ -1,0 +1,14 @@
+{
+  "exp_id": "d2_yamnet_finetune",
+  "backbone": "yamnet_finetuned",
+  "feature": "yamnet_patches_meanstd",
+  "test_macro_f1": 0.8830474338495728,
+  "test_accuracy": 0.8833333333333333,
+  "smoke": false,
+  "per_class_f1": {
+    "ambulance": 0.8739495798319328,
+    "firetruck": 0.8429752066115702,
+    "police": 0.8235294117647058,
+    "traffic": 0.9917355371900827
+  }
+}

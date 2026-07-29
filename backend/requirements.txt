@@ -1,0 +1,6 @@
+# Backend FastAPI � inferensi sirine (Fase 4)
+# Install DI ATAS environment ml (.venv) yang sudah punya tensorflow/librosa/dll:
+#   .venv/Scripts/python.exe -m pip install -r backend/requirements.txt
+fastapi>=0.110,<0.116
+uvicorn[standard]>=0.27,<0.31
+python-multipart>=0.0.9
