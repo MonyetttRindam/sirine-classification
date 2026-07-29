@@ -18,8 +18,17 @@ Klasifikasi suara sirine kendaraan darurat, 4 kelas: `ambulance`, `firetruck`, `
 (fine-tune YAMNet, macro-F1 D2 = 0.883) → **paket inferensi `ml/src` + backend FastAPI + demo
 Gradio** yang **membandingkan dua model (D1 3-kelas vs D2 4-kelas) berdampingan**, lengkap dengan
 **alert 3 lapis** (gerbang OOD YAMNet + confidence threshold + persistensi). Semua diverifikasi:
-`ml/src` mereproduksi macro-F1 kedua model, dan stack FastAPI↔Gradio jalan end-to-end. **Sisa
-(ditunda)**: temperature scaling, deploy HF Spaces + Docker/CI, setup repo Git. Detail di bagian
+`ml/src` mereproduksi macro-F1 kedua model, dan stack FastAPI↔Gradio jalan end-to-end.
+
+**Update (29 Juli 2026)**: frontend utama sekarang **React + Vite** (`frontend-web/`, bukan lagi
+Gradio) dan **deployment single-container SUDAH dibangun & teruji**: `Dockerfile` multi-stage
+(Node build FE → Python runtime, YAMNet di-pre-cache) → backend FastAPI **sekaligus menyajikan
+React build** di `/` (API tetap di `/predict`,`/health`,`/stream-file`,`/stream`; info API pindah
+ke `/api`). Image `sirine:local` diuji: `/health` dua model OK, `/` render SPA, `/predict` police
+→ D2 "police" & D1 "firetruck" (perbandingan jalan). Repo di-push ke GitHub (lihat bawah).
+**Target host: Hugging Face Spaces (Docker, port 7860)** — front-matter ada di `README.md` root.
+`requirements-deploy.txt` = deps ramping (inferensi+web). **Sisa (ditunda)**: create HF Space +
+push ke remote-nya (butuh akun/token HF, manual), opsi CI sync GitHub→HF. Detail di bagian
 **"Deployment Fase 4"** di bawah; hasil eksperimen di `docs/TEMUAN_EKSPERIMEN.md`; roadmap di
 `docs/PLANNING.md`.
 
@@ -167,9 +176,10 @@ model checkpoint, metrics JSON, dan satu baris di CSV.
 
 ## Keadaan yang perlu diketahui
 
-- **Belum jadi repo Git sendiri.** Folder ini untracked di dalam repo induk
-  `D:/Coding Vscode`. Ditunda secara sadar (decision log 2026-07-22); belum ada rencana
-  push ke GitHub. Akibatnya workflow branch/PR di `docs/TIM.md` belum berlaku.
+- **Sudah jadi repo Git sendiri & di-push ke GitHub** (29 Juli 2026): **public** di
+  `https://github.com/MonyetttRindam/sirine-classification` (branch `main`). Model produksi
+  dilacak via **Git LFS** (`.gitattributes`: `*.keras/*.pb/variables.data-*`). `.gitignore`
+  meng-whitelist HANYA dua model produksi dari `ml/artifacts/` (sisanya eksperimen, tak di-commit).
 - **`ml/experiments.csv` sudah terisi** — 7 eksperimen tercatat (baseline s/d fine-tune).
 - **`ml/src/` SUDAH ADA** (dibuat Fase 4, 27 Juli). Paket inferensi produksi:
   `config · audio · yamnet_hub · classifiers · ood · alert · inference`. Refactor hutang
