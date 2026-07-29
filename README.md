@@ -46,11 +46,30 @@ docker run --rm -p 7860:7860 sirine
 # buka http://localhost:7860
 ```
 
-## Deploy ke Hugging Face Spaces
+## Deploy ke Google Cloud Run (gratis, direkomendasikan)
 
-Space ini bertipe **Docker**. Cukup push repo ini ke remote Space; HF membaca
-`Dockerfile` + front-matter README di atas (`sdk: docker`, `app_port: 7860`) lalu
-build otomatis. Model `ml/artifacts/**` dilacak via **Git LFS**.
+Jalankan **Dockerfile yang sama** (frontend+backend satu container). Paling mudah via
+**Google Cloud Shell** (browser, `gcloud` + `git-lfs` sudah ada, tak perlu install/upload
+image):
+
+```bash
+git clone https://github.com/MonyetttRindam/sirine-classification
+cd sirine-classification
+git lfs pull                       # ambil bobot model asli (LFS)
+bash scripts/deploy-cloudrun.sh    # build di cloud + deploy (mem 2Gi, region Jakarta)
+```
+
+Container menghormati `$PORT` yang di-inject Cloud Run (default 8080). Scale-to-zero →
+idle = $0. Detail flag di `scripts/deploy-cloudrun.sh`.
+
+## Deploy ke Hugging Face Spaces (butuh PRO — Docker Space berbayar)
+
+> ⚠️ Sejak kebijakan baru HF, **Docker/Gradio Space perlu langganan PRO**; hanya Static
+> Space yang gratis (dan Static tak bisa menjalankan backend TF). Pakai ini hanya jika
+> berlangganan PRO.
+
+Space bertipe **Docker**. Push repo ke remote Space; HF membaca `Dockerfile` + front-matter
+README (`sdk: docker`, `app_port: 7860`) lalu build otomatis. Model dilacak via **Git LFS**.
 
 ## Pindah host (Railway / Render / Fly)
 

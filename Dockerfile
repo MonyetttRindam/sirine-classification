@@ -48,6 +48,7 @@ COPY backend ./backend
 # Hasil build React dari stage 1 -> backend menyajikannya di "/".
 COPY --from=frontend /fe/dist ./frontend-web/dist
 
-# HF Spaces mengharapkan app di port 7860 (bisa diatur via app_port di README).
+# Hormati $PORT dari platform: Cloud Run set 8080, HF Spaces/lokal default 7860.
+# (sh -c dipakai supaya ${PORT} di-expand; exec-form biasa tidak meng-expand env.)
 EXPOSE 7860
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-7860}"]

@@ -1,0 +1,24 @@
+# Apa yang TIDAK diunggah ke Cloud Build saat `gcloud run deploy --source .`.
+# (Kalau file ini ada, gcloud memakainya, BUKAN .gitignore — jadi tak ada ambiguitas
+#  soal negasi whitelist model di .gitignore. ml/artifacts SENGAJA tidak dikecualikan.)
+.git/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# besar / tak perlu untuk build image
+Dataset/
+data/
+ml/cache/
+notebooks/
+figures/
+frontend-web/node_modules/
+frontend-web/dist/
+frontend-gradio/
+
+.pytest_cache/
+scratchpad/
+*.log
+.DS_Store
+Thumbs.db
