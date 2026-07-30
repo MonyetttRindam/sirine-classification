@@ -13,6 +13,49 @@ const DEMO_STREAM = {
   events: [{ t: 1, label: "police" }, { t: 7, label: "ambulance" }],
 };
 
+// Warna kendaraan darurat per jenis (tampak atas).
+const SIREN_SIM = {
+  ambulance: { body: "#eef1f7", cabin: "#c4cee0", stripe: "#e5233a", label: "Ambulans" },
+  firetruck: { body: "#e5233a", cabin: "#8f1420", stripe: "#ffd54a", label: "Pemadam" },
+  police:    { body: "#16233f", cabin: "#0c1526", stripe: "#eaf0ff", label: "Polisi" },
+};
+
+// Mobil tampak-atas (SVG kecil), menghadap kanan (arah laju).
+function TopCar({ body = "#2f5bff", cabin = "#cfe0ff", stripe, beacon = false }) {
+  return (
+    <svg className="topcar" viewBox="0 0 64 30" width="58" height="27" aria-hidden="true">
+      <rect x="3" y="4" width="58" height="22" rx="7" fill={body} stroke="rgba(0,0,0,.18)" />
+      {stripe && <rect x="3" y="12" width="58" height="5" fill={stripe} opacity=".9" />}
+      <rect x="22" y="7" width="16" height="16" rx="3.5" fill={cabin} />
+      <rect x="55" y="9" width="4" height="12" rx="2" fill="rgba(255,255,255,.55)" />
+      <rect x="6" y="9" width="3" height="12" rx="1.5" fill="rgba(0,0,0,.22)" />
+      {beacon && <rect className="beacon" x="14" y="11" width="7" height="8" rx="2" fill="#ff3b47" />}
+    </svg>
+  );
+}
+
+// Simulasi "beri jalan": mobil biru menepi ketika sirine terdeteksi, kendaraan darurat lewat.
+function CarSim({ active, type }) {
+  const key = (type || "").toLowerCase();
+  const em = SIREN_SIM[key];
+  const on = !!active && !!em;
+  return (
+    <div className={"carsim" + (on ? " active" : "")}>
+      <div className="road" role="img" aria-label={on ? `Memberi jalan untuk ${em.label}` : "Lalu lintas normal"}>
+        <div className="ego"><TopCar /></div>
+        {on && (
+          <div className="emv"><TopCar body={em.body} cabin={em.cabin} stripe={em.stripe} beacon /></div>
+        )}
+      </div>
+      <div className="carsim-cap">
+        {on
+          ? <><b style={{ color: "var(--red-700)" }}>Beri jalan</b> — {em.label} melintas, mobil menepi.</>
+          : "Lalu lintas normal — kendaraan tetap di jalur kanan."}
+      </div>
+    </div>
+  );
+}
+
 function ModelCard({ tag, model, winColor }) {
   if (!model) return null;
   const others = model.rows.filter((r) => r.n !== model.pred);
@@ -66,6 +109,7 @@ function Results({ result }) {
         <div className="cap">{result.gateOpen ? "Sirine terdeteksi" : "Tidak ada sirine"} · ambang keputusan {result.thresholdPct}%</div>
       </div>
       <div className="twin"><ModelCard tag="d1" model={result.d1} winColor={winColor} /><ModelCard tag="d2" model={result.d2} winColor={winColor} /></div>
+      <CarSim active={result.alert} type={result.d2Label} />
     </div>
   );
 }
@@ -411,6 +455,7 @@ export default function Classify({ initialTab = "upload", online, onClassified }
                   </div>
                   <div className="lm-viz"><canvas ref={liveVizRef} style={{ width: "100%", height: 120, display: "block" }} /></div>
                   <div className="lm-cap">Bar merah = window dinyatakan alert (hysteresis {`${streamData.win}s`} window). Garis putus-putus = ambang gerbang OOD 5%.</div>
+                  <CarSim active={liveMsg?.state === "on"} type={liveMsg?.label} />
                 </>
               )}
             </div>

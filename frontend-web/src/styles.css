@@ -298,6 +298,23 @@ button { font-family: inherit; cursor: pointer; }
 .lm-viz { background: var(--ink); border-radius: 12px; padding: 8px; margin-top: 10px; }
 .lm-cap { font-size: 12px; color: var(--ink-2); margin-top: 8px; }
 
+/* simulasi "beri jalan" (mobil tampak atas) */
+.carsim { margin-top: 16px; }
+.carsim .road { position: relative; height: 132px; border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, #2c3746, #222c39); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+.carsim .road::before { content: ""; position: absolute; left: 0; right: 0; top: 66px; height: 3px; background: repeating-linear-gradient(90deg, #f2c94c 0 20px, transparent 20px 44px); opacity: .7; }
+.carsim.active .road::before { animation: laneScroll .5s linear infinite; }
+@keyframes laneScroll { to { background-position: -44px 0; } }
+.carsim .road::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 16px; height: 2px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.32) 0 10px, transparent 10px 18px); }
+.carsim .ego { position: absolute; top: 26px; right: 30px; transition: transform .55s cubic-bezier(.22,.61,.36,1); filter: drop-shadow(0 4px 5px rgba(0,0,0,.35)); }
+.carsim.active .ego { transform: translateY(54px); }
+.carsim .emv { position: absolute; top: 26px; left: -74px; filter: drop-shadow(0 4px 6px rgba(0,0,0,.4)); animation: emvDrive 2.1s linear infinite; }
+@keyframes emvDrive { from { left: -74px; } to { left: calc(100% + 30px); } }
+.carsim .topcar { display: block; }
+.carsim .beacon { animation: beaconFlash .38s steps(1) infinite; }
+@keyframes beaconFlash { 0% { fill: #ff3b47; } 50% { fill: #2f5bff; } 100% { fill: #ff3b47; } }
+.carsim-cap { font-size: 12.5px; color: var(--ink-2); margin-top: 9px; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .carsim.active .road::before, .carsim .emv, .carsim .beacon { animation: none; } .carsim.active .ego { transition: none; } }
+
 /* stream */
 .stream-hd { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .live { display: inline-flex; align-items: center; gap: 7px; background: var(--red); color: #fff; border-radius: 9px; padding: 6px 13px; font-family: var(--display); font-weight: 600; font-size: 12px; letter-spacing: .06em; }
