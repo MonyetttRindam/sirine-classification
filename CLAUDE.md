@@ -253,9 +253,13 @@ Install deps sekali: `pip install -r backend/requirements.txt -r frontend-gradio
 - bug `gradio_client 1.3.0` `get_type`/`_json_schema_to_python_type` crash `'bool' is not iterable`
   saat build skema → “localhost is not accessible”. Dipatch di `frontend-gradio/app.py` (guard bool).
 
-**Mikrofon**: mode **rekam-lalu-analisis** sudah aktif (`gr.Audio sources=["upload","microphone"]`).
-**Live mic real-time** (WS `/stream` streaming kontinu) sengaja **ditunda ke fase deploy web** —
-backend WS-nya sudah ada, wiring frontend-nya belum.
+**Mikrofon**: mode **rekam-lalu-analisis** aktif di kedua frontend. **Live mic real-time**
+(WS `/stream` streaming kontinu) **SUDAH diimplementasi di React** (`frontend-web`, 30 Juli 2026):
+tab Streaming punya panel "mic langsung" → capture mic → downsample 16k → kirim float32 PCM via
+WebSocket → terima step alert (state/label/conf/ood) → viz bar bergulir + banner status; stop
+otomatis saat pindah tab/unmount. URL WS di `api.js:streamUrl()` (http→ws, same-origin di
+produksi → lolos Cloudflare Tunnel). Terverifikasi: WS mereproduksi hysteresis (police alert
+di window ke-2). (Frontend Gradio lama belum diberi live mic — tidak dipakai lagi.)
 
 **Verifikasi kritis**: `tests/test_inference.py` mereproduksi macro-F1 D1≈0.976 & D2≈0.883 di
 test set → bukti pipeline `ml/src` identik dengan training. Jalankan setelah ubah preprocessing.
