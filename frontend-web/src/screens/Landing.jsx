@@ -23,7 +23,7 @@ export default function Landing({ go }) {
               <div className="row">
                 <span className="org">PT VINIX<span className="b">7</span></span>
                 <span className="sep" />
-                <span className="prog">Program Kerja Praktik<br /><small>Teknik Informatika</small></span>
+                <span className="prog">Program Kerja Praktik<br /><small>Kelompok 14</small></span>
               </div>
             </div>
           </div>
