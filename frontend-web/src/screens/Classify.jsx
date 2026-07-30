@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SAMPLES } from "../data.js";
-import { classifySample, classifyFile, classifyStream } from "../api.js";
+import { classifySample, classifyFile, classifyStream, streamUrl, labelOf } from "../api.js";
 import { encodeWAV, fmtTime } from "../lib/wav.js";
 
 const nowHM = () => new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
@@ -84,6 +84,9 @@ export default function Classify({ initialTab = "upload", online, onClassified }
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
   const [streamData, setStreamData] = useState(DEMO_STREAM);
+  const [liveOn, setLiveOn] = useState(false);
+  const [liveMsg, setLiveMsg] = useState(null);
+  const [liveModel, setLiveModel] = useState("d2");
 
   const audioRef = useRef(null);
   const fileRef = useRef(null);
@@ -92,6 +95,7 @@ export default function Classify({ initialTab = "upload", online, onClassified }
   const micRef = useRef(null);
   const recPlayRef = useRef(null);
   const streamRef = useRef(null);
+  const liveVizRef = useRef(null);
   const eng = useRef({});
 
   useEffect(() => { setTab(initialTab); }, [initialTab]);
@@ -199,16 +203,90 @@ export default function Classify({ initialTab = "upload", online, onClassified }
     try { const d = await classifyStream(file); setStreamData(d); } finally { setLoading(false); }
   }
 
+  /* ---------- live mic real-time (WebSocket /stream) ---------- */
+  // Downsample nearest-neighbor ke 16 kHz (backend & YAMNet pakai 16k).
+  function downsampleTo16k(f32, inRate) {
+    if (inRate === 16000) return f32;
+    const ratio = inRate / 16000, outLen = Math.floor(f32.length / ratio), out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) out[i] = f32[Math.floor(i * ratio)] || 0;
+    return out;
+  }
+  function drawLiveViz() {
+    const canvas = liveVizRef.current; if (!canvas) return;
+    const arr = eng.current.liveScores || [];
+    const c = canvas.getContext("2d"), w = canvas.clientWidth, h = canvas.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
+    if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+    c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    const thY = h - 0.05 * (h - 6) - 3;                       // garis ambang OOD 0.05
+    c.strokeStyle = "rgba(255,59,71,.5)"; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(0, thY); c.lineTo(w, thY); c.stroke(); c.setLineDash([]);
+    const N = 60, step = w / N, red = cssVar("--red"), blue = cssVar("--blue");
+    arr.slice(-N).forEach((p, i) => {
+      const bh = Math.max(2, Math.min(1, p.score) * (h - 6));
+      c.fillStyle = p.on ? red : blue;
+      c.fillRect(i * step + step * 0.15, h - bh - 2, step * 0.7, bh);
+    });
+  }
+  async function startLive() {
+    setError("");
+    if (liveOn) return;
+    if (!online) { setError("Live mic butuh backend online (mode contoh tidak mendukung streaming)."); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { setError("Tidak bisa mengakses mikrofon. Izinkan akses mic di browser."); return; }
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain(); mute.gain.value = 0;
+    src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    let ws;
+    try { ws = new WebSocket(streamUrl()); } catch { setError("Gagal membuka koneksi streaming."); stream.getTracks().forEach((t) => t.stop()); ctx.close(); return; }
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => ws.send(JSON.stringify({ model_key: liveModel }));
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      setLiveMsg(m);
+      const arr = eng.current.liveScores || [];
+      arr.push({ score: m.siren_score, on: m.state === "on" });
+      if (arr.length > 120) arr.shift();
+      eng.current.liveScores = arr;
+      drawLiveViz();
+      if (m.triggered) onClassified?.({ time: nowHM(), src: "Live mic", d1: "—", d2: `${labelOf(m.label)} · ${(m.confidence).toFixed(2)}`, ood: (m.siren_score).toFixed(2), status: "ALERT" });
+    };
+    ws.onerror = () => setError("Koneksi streaming bermasalah.");
+    proc.onaudioprocess = (e) => {
+      if (ws.readyState !== 1) return;
+      const ds = downsampleTo16k(new Float32Array(e.inputBuffer.getChannelData(0)), ctx.sampleRate);
+      ws.send(ds.buffer);
+    };
+    eng.current.live = { stream, ctx, src, proc, mute, ws };
+    eng.current.liveScores = [];
+    setLiveMsg(null); setLiveOn(true);
+  }
+  function stopLive() {
+    const L = eng.current.live;
+    setLiveOn(false); setLiveMsg(null);
+    if (!L) return;
+    try { L.proc.onaudioprocess = null; L.proc.disconnect(); L.mute.disconnect(); L.src.disconnect(); } catch {}
+    try { L.ws.close(); } catch {}
+    try { L.stream.getTracks().forEach((t) => t.stop()); } catch {}
+    try { L.ctx.close(); } catch {}
+    eng.current.live = null;
+  }
+
   useEffect(() => { if (!result) runSample("ambulans"); /* eslint-disable-next-line */ }, []);
-  // Hentikan playback saat pindah tab supaya audio tidak bocor ke tab lain.
-  useEffect(() => { const a = audioRef.current; if (a && !a.paused) { a.pause(); setPlaying(false); stopDraw(); } /* eslint-disable-next-line */ }, [tab]);
+  // Hentikan playback + live mic saat pindah tab supaya audio/mic tidak bocor ke tab lain.
+  useEffect(() => {
+    const a = audioRef.current; if (a && !a.paused) { a.pause(); setPlaying(false); stopDraw(); }
+    if (tab !== "stream" && eng.current.live) stopLive();
+    /* eslint-disable-next-line */
+  }, [tab]);
   useEffect(() => {
     if (tab === "upload" && !playing) drawBars(specRef.current, null, cssVar("--blue"));
     if (tab === "record" && recording) drawBars(micRef.current, null, cssVar("--red"));
     if (tab === "record" && !recording && recordedUrl && !playing) drawBars(recPlayRef.current, null, cssVar("--red"));
   }, [tab, playing, recording, recordedUrl]);
   useEffect(() => { if (tab === "stream") drawStreamChart(streamRef.current, streamData, cur); /* eslint-disable-next-line */ }, [tab, streamData, cur]);
-  useEffect(() => () => { stopDraw(); if (eng.current.mic) stopMic(); if (eng.current.ctx) eng.current.ctx.close(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => () => { stopDraw(); if (eng.current.mic) stopMic(); if (eng.current.live) stopLive(); if (eng.current.ctx) eng.current.ctx.close(); /* eslint-disable-next-line */ }, []);
 
   const showResults = tab === "upload" || tab === "record";
 
@@ -309,9 +387,37 @@ export default function Classify({ initialTab = "upload", online, onClassified }
 
         {tab === "stream" && (
           <div>
+            {/* Live mic real-time (WebSocket) */}
+            <div className="live-mic">
+              <div className="lm-head">
+                <button className={"lm-btn" + (liveOn ? " on" : "")} onClick={liveOn ? stopLive : startLive}>
+                  {liveOn ? <><span className="sq" />Hentikan mic</> : <>● Mulai mic langsung</>}
+                </button>
+                <label className="lm-model">
+                  Model
+                  <select value={liveModel} onChange={(e) => setLiveModel(e.target.value)} disabled={liveOn}>
+                    <option value="d2">D2 · 4 kelas</option>
+                    <option value="d1">D1 · 3 kelas</option>
+                  </select>
+                </label>
+                <span className="hint">{online ? "deteksi kontinu dari mikrofon perangkat" : "butuh backend online"}</span>
+              </div>
+              {liveOn && (
+                <>
+                  <div className={"banner " + (liveMsg?.state === "on" ? "alert" : "safe")} style={{ marginTop: 4 }}>
+                    <span className="d blink" />
+                    <span className="ttl">{liveMsg?.state === "on" ? `SIRINE — ${labelOf(liveMsg.label)} terdeteksi` : "Memantau… aman"}</span>
+                    <span className="sub">{liveMsg ? `dugaan ${labelOf(liveMsg.label)} · keyakinan ${Math.round(liveMsg.confidence * 100)}% · OOD ${Math.round(liveMsg.siren_score * 100)}%` : "menunggu audio…"}</span>
+                  </div>
+                  <div className="lm-viz"><canvas ref={liveVizRef} style={{ width: "100%", height: 120, display: "block" }} /></div>
+                  <div className="lm-cap">Bar merah = window dinyatakan alert (hysteresis {`${streamData.win}s`} window). Garis putus-putus = ambang gerbang OOD 5%.</div>
+                </>
+              )}
+            </div>
+
             <div className="stream-hd">
               <span className="live"><span className="d blink" />LIVE</span>
-              <span className="stream-ttl">Monitoring siren_score</span>
+              <span className="stream-ttl">Monitoring siren_score (dari file)</span>
               <span className="stream-meta">window {streamData.win}s · hop {streamData.hop}s · {streamData.live ? "hasil backend" : "contoh"}</span>
             </div>
             <div className="chips" style={{ marginBottom: 14 }}>

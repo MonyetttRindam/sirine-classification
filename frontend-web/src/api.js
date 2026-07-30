@@ -10,6 +10,15 @@ const API =
 
 const CLASS_LABEL = { ambulance: "Ambulance", firetruck: "Firetruck", police: "Police", traffic: "Traffic" };
 
+export const labelOf = (c) => CLASS_LABEL[c] || c;
+
+// URL WebSocket untuk /stream (live mic). Turunkan dari API base: http->ws, https->wss.
+// API "" (same-origin, produksi) -> pakai origin halaman; API "http://host:port" (dev) -> ws://...
+export function streamUrl() {
+  const base = API || (typeof location !== "undefined" ? location.origin : "");
+  return base.replace(/^http/, "ws") + "/stream";
+}
+
 export async function checkHealth() {
   try {
     const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(2500) });
